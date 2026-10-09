@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>旅平險名冊轉換</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f6f7f5;--card:#fff;--ink:#1d2421;--mute:#68716c;--line:#d9ded9;--acc:#1f6f55;--accink:#fff;--bad:#fbe3e0;--badink:#9b2a1f;--ok:#e3f1ea;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141816;--card:#1d2321;--ink:#e8ece9;--mute:#9aa49e;--line:#333c38;--acc:#4fb68f;--accink:#0d1411;--bad:#40201c;--badink:#ffb4a8;--ok:#1b3329}}
+:root[data-theme="dark"]{--bg:#141816;--card:#1d2321;--ink:#e8ece9;--mute:#9aa49e;--line:#333c38;--acc:#4fb68f;--accink:#0d1411;--bad:#40201c;--badink:#ffb4a8;--ok:#1b3329}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 "Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif}
+main{max-width:760px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.4rem;margin:0 0 4px}
+.sub{color:var(--mute);font-size:.88rem;margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.card h2{font-size:1rem;margin:0 0 10px}
+label{display:block;font-size:.85rem;color:var(--mute);margin:10px 0 3px}
+select,input[type=text],input[type=number]{width:100%;font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+input[type=file]{width:100%;font:inherit;color:var(--ink)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+button{font:inherit;font-weight:600;padding:12px 18px;border:0;border-radius:10px;background:var(--acc);color:var(--accink);width:100%;cursor:pointer}
+button.alt{background:transparent;color:var(--ink);border:1px solid var(--line);margin-top:8px}
+button:disabled{opacity:.4;cursor:not-allowed}
+.sum{padding:10px 12px;border-radius:8px;background:var(--ok);margin-bottom:10px;font-size:.95rem}
+.sum.bad{background:var(--bad);color:var(--badink)}
+.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:.85rem;white-space:nowrap}
+th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left}
+th{background:var(--bg);color:var(--mute);font-weight:600}
+tr.bad td{background:var(--bad);color:var(--badink)}
+.note{font-size:.82rem;color:var(--mute);margin-top:10px}
+details summary{cursor:pointer;font-weight:600}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+<h1>旅平險名冊轉換</h1>
+<p class="sub">檔案只在這個頁面的瀏覽器內處理，不會上傳。想確認的話，頁面載入後開啟飛航模式再操作。</p>
+
+<section class="card">
+<h2>1. 選擇老師的名冊（Excel）</h2>
+<input type="file" id="file" accept=".xls,.xlsx,.csv">
+<p class="note" id="fileinfo"></p>
+</section>
+
+<section class="card" id="mapCard" hidden>
+<h2>2. 指定欄位</h2>
+<label for="hRow">標題列（姓名、身分證那一列）在第幾列</label><input type="number" id="hRow" min="1" value="1">
+<p class="note" id="hPrev"></p>
+<label for="cName">姓名在哪一欄</label><select id="cName"></select>
+<label for="cId">身分證字號在哪一欄</label><select id="cId"></select>
+<label for="cBirth">出生日期在哪一欄</label><select id="cBirth"></select>
+<details style="margin-top:14px"><summary>固定欄位（全員相同）</summary>
+<div class="grid">
+<div><label for="dType">ID類型</label><input type="number" id="dType" value="1"></div>
+<div><label for="dSum">意外身故失能(萬)</label><input type="number" id="dSum" value="100"></div>
+<div><label for="dReal">實支實付(萬)</label><input type="number" id="dReal" value="10"></div>
+<div><label for="dInc">旅遊不便(Y/N)</label><input type="text" id="dInc" value="N"></div>
+<div><label for="kSum">未滿15歲：身故失能＝喪葬(萬)</label><input type="number" id="kSum" value="69"></div>
+<div><label for="kReal">未滿15歲：實支實付(萬)</label><input type="number" id="kReal" value="6"></div>
+<div><label for="dBen">受益人(1法定/2指定)</label><input type="number" id="dBen" value="1"></div>
+</div>
+<p class="note">預設值取自國泰模板範例列，請依實際保單條件確認。未滿15歲者會自動改用兒童保額，喪葬費用同步填入。</p>
+</details>
+</section>
+
+<section class="card" id="resCard" hidden>
+<h2>3. 檢查結果</h2>
+<div class="sum" id="sum"></div>
+<div class="wrap"><table><thead><tr><th>#</th><th>姓名</th><th>出生(民國)</th><th>身分證</th><th>需確認</th></tr></thead><tbody id="tb"></tbody></table></div>
+<div style="margin-top:14px"><button id="dl">下載國泰格式 (.xlsx)</button>
+<button class="alt" id="cp">複製表格內容</button></div>
+<p class="note" id="msg"></p>
+</section>
+</main>
+
+<script id="core">
+const L={A:10,B:11,C:12,D:13,E:14,F:15,G:16,H:17,I:34,J:18,K:19,L:20,M:21,N:22,O:35,P:23,Q:24,R:25,S:26,T:27,U:28,V:29,W:32,X:30,Y:31,Z:33};
+function idOk(s){if(!/^[A-Z][12]\d{8}$/.test(s))return false;const c=L[s[0]];let t=Math.floor(c/10)+(c%10)*9;const w=[8,7,6,5,4,3,2,1,1];for(let i=0;i<9;i++)t+=(+s[i+1])*w[i];return t%10===0}
+const p2=n=>String(n).padStart(2,'0');
+function bday(v,now){
+  if(v===''||v==null)return{e:'缺出生日期'};
+  let y,m,d;
+  if(v instanceof Date){y=v.getFullYear()-1911;m=v.getMonth()+1;d=v.getDate()}
+  else if(typeof v==='number'&&v<100000&&v>0){const o=XLSX.SSF.parse_date_code(v);y=o.y-1911;m=o.m;d=o.d}
+  else{
+    const s=String(v).trim().replace(/[年月\/\-．。]/g,'.').replace(/日/g,'').replace(/\s/g,'');
+    if(/^\d+\.\d+\.\d+\.?$/.test(s)){[y,m,d]=s.split('.').map(Number);if(y>=1000)y-=1911}
+    else if(/^\d{6,8}$/.test(s)){
+      if(s.length===8){y=+s.slice(0,4)-1911;m=+s.slice(4,6);d=+s.slice(6)}
+      else if(s.length===7){y=+s.slice(0,3);m=+s.slice(3,5);d=+s.slice(5)}
+      else{y=+s.slice(0,2);m=+s.slice(2,4);d=+s.slice(4)}
+    }else return{e:'生日格式看不懂：'+v};
+  }
+  const dt=new Date(y+1911,m-1,d);
+  if(!(y>0)||dt.getMonth()!==m-1||dt.getDate()!==d)return{e:'生日不是有效日期'};
+  if(dt>now)return{e:'生日在未來'};
+  return{v:String(y).padStart(3,'0')+p2(m)+p2(d),dt};
+}
+function convert(rows,ix,def,now){
+  const seen={};
+  const res=rows.map(r=>{
+    const cl=x=>String(x??'').replace(/[\s\u3000]/g,'');
+    const name=ix.n<0?'':cl(r[ix.n]);
+    const id=ix.i<0?'':cl(r[ix.i]).toUpperCase();
+    const b=ix.b<0?{e:'未選生日欄'}:bday(r[ix.b],now);
+    const bad=[];
+    if(!name)bad.push('缺姓名');
+    if(!id)bad.push('缺身分證');else{
+      if(!/^[A-Z][12]\d{8}$/.test(id))bad.push('身分證格式不符');else if(!idOk(id))bad.push('身分證檢查碼錯誤');
+      seen[id]=(seen[id]||0)+1;
+    }
+    let minor=false;
+    if(b.e)bad.push(b.e);
+    else{let a=now.getFullYear()-b.dt.getFullYear();const bd=new Date(now.getFullYear(),b.dt.getMonth(),b.dt.getDate());if(now<bd)a--;
+      minor=a<15}
+    return{name,id,birth:b.v||'',bad,minor};
+  });
+  res.forEach(o=>{if(o.id&&seen[o.id]>1)o.bad.push('身分證重複')});
+  return res;
+}
+</script>
+<script>
+const $=id=>document.getElementById(id);
+let rows=[],res=[],dl=null;
+(async()=>{try{if(window.claude&&claude.use)dl=await claude.use('downloads')}catch(e){}})();
+const HEAD=["編號","姓名","出生日期(民國7碼)","ID類型","ID號碼","國籍＆居住地","性別","意外身故失能(萬)","喪葬費用(萬)","特定事故(萬)","恐怖主義(萬)","實支實付(萬)","突發疾病(萬)","旅遊不便","不便方案","受益人","受益人姓名","與被保人關係","英文姓名","護照號碼"];
+let aoa=[];
+function build(hi){
+  const hdr=(aoa[hi]||[]).map(x=>String(x).trim());
+  rows=aoa.slice(hi+1).filter(r=>r.some(c=>String(c).trim()!==''));
+  $('fileinfo').textContent=`已讀取：${rows.length} 筆資料（第一個工作表）`;
+  $('hPrev').textContent='目前標題列內容：'+(hdr.filter(Boolean).join('、')||'（這一列是空的）');
+  const opts=hdr.map((h,i)=>`<option value="${i}">${(h||'（無標題）').replace(/</g,'&lt;')}（第${i+1}欄）</option>`).join('');
+  const g={cName:guess(hdr,/姓名|名字|被保|^名/),cId:guess(hdr,/身分證|身份證|證號|字號|ID/i),cBirth:guess(hdr,/生日|出生|生年/)};
+  for(const k in g){$(k).innerHTML='<option value="-1">（不選）</option>'+opts;$(k).value=g[k];$(k).onchange=run}
+  $('mapCard').hidden=false;run();
+}
+function guess(h,re){const i=h.findIndex(x=>re.test(x));return i}
+$('file').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  try{
+    const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});
+    aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:true,defval:''});
+    let hi=0;const re=[/姓名|名字|被保/,/身分證|身份證|證號|字號|ID/i,/生日|出生|生年/];
+    for(let r=0;r<Math.min(aoa.length,30);r++){const t=aoa[r].map(x=>String(x));if(re.filter(q=>t.some(c=>q.test(c))).length>=2){hi=r;break}}
+    $('hRow').value=hi+1;$('hRow').oninput=()=>build(Math.max(0,(+$('hRow').value||1)-1));
+    ['dType','dSum','dReal','dInc','dBen','kSum','kReal'].forEach(k=>$(k).oninput=run);
+    build(hi);
+  }catch(err){$('fileinfo').textContent='讀取失敗，請確認是 Excel 檔（.xls/.xlsx）。';$('mapCard').hidden=true;$('resCard').hidden=true}
+};
+function def(){return{type:$('dType').value,sum:$('dSum').value,real:$('dReal').value,inc:$('dInc').value.trim().toUpperCase(),ben:$('dBen').value,ksum:$('kSum').value,kreal:$('kReal').value}}
+function run(){
+  res=convert(rows,{n:+$('cName').value,i:+$('cId').value,b:+$('cBirth').value},def(),new Date());
+  const nb=res.filter(o=>o.bad.length).length;
+  const s=$('sum');s.className='sum'+(nb?' bad':'');
+  s.textContent=nb?`共 ${res.length} 人，其中 ${nb} 人需確認（紅色列）。請對照老師原檔修正後再上傳。`:`共 ${res.length} 人，全部通過檢查。`;
+  $('tb').innerHTML=res.map((o,i)=>`<tr class="${o.bad.length?'bad':''}"><td>${i+1}</td><td>${esc(o.name)}</td><td>${o.birth}</td><td>${esc(o.id)}</td><td>${esc(o.bad.length?o.bad.join('；'):o.minor?'未滿15歲：已套用兒童保額':'')}</td></tr>`).join('');
+  $('resCard').hidden=false;
+}
+function esc(t){return String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function table(){
+  const d=def();
+  return [HEAD].concat(res.map((o,i)=>[i+1,o.name,o.birth,+d.type||'',o.id,'',o.id[1]==='1'?'M':o.id[1]==='2'?'F':'',(o.minor?+d.ksum:+d.sum)||'',o.minor?+d.ksum||'':'','','',(o.minor?+d.kreal:+d.real)||'','',d.inc,'',+d.ben||'','','','','']));
+}
+$('dl').onclick=async()=>{
+  const m=$('msg');m.textContent='';
+  if(!dl){m.textContent='這個環境無法直接下載，請改用「複製表格內容」，再貼到國泰模板。';return}
+  try{
+    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(table()),'名冊');
+    const t=new Date(),stamp=t.getFullYear()+p2(t.getMonth()+1)+p2(t.getDate());
+    await dl.save({filename:`國泰名冊_${stamp}.xlsx`,data:XLSX.write(wb,{type:'array',bookType:'xlsx'})});
+    m.textContent='已送出下載。上傳前請先看紅色列是否已處理。';
+  }catch(e){m.textContent=e&&e.code==='declined'?'已取消下載。':'下載失敗，請改用「複製表格內容」。'}
+};
+$('cp').onclick=async()=>{
+  const tsv=table().map(r=>r.join('\t')).join('\n');
+  try{await navigator.clipboard.writeText(tsv);$('msg').textContent='已複製，可貼到 Excel 或國泰模板。'}
+  catch(e){$('msg').textContent='無法自動複製，請手動長按表格選取。'}
+};
+</script>
+</body>
+</html>

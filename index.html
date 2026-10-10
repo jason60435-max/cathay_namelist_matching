@@ -2,8 +2,9 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>國泰旅平險名冊轉換</title>
+<title>旅平險名冊轉換</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{--bg:#f6f7f5;--card:#fff;--ink:#1d2421;--mute:#68716c;--line:#d9ded9;--acc:#1f6f55;--accink:#fff;--bad:#fbe3e0;--badink:#9b2a1f;--ok:#e3f1ea;
@@ -34,16 +35,17 @@ th{background:var(--bg);color:var(--mute);font-weight:600}
 tr.bad td{background:var(--bad);color:var(--badink)}
 .note{font-size:.82rem;color:var(--mute);margin-top:10px}
 details summary{cursor:pointer;font-weight:600}
+.dlink{display:block;margin-top:12px;padding:12px;border:1px dashed var(--acc);border-radius:10px;color:var(--acc);font-weight:600;text-align:center;word-break:break-all}
 [hidden]{display:none!important}
 </style>
 </head>
 <body>
 <main>
-<h1>國泰旅平險名冊轉換</h1>
+<h1>旅平險名冊轉換</h1>
 <p class="sub">檔案只在這個頁面的瀏覽器內處理，不會上傳。想確認的話，頁面載入後開啟飛航模式再操作。</p>
 
 <section class="card">
-<h2>1. 選擇來自負責人的名冊（Excel）</h2>
+<h2>1. 選擇老師的名冊（Excel）</h2>
 <input type="file" id="file" accept=".xls,.xlsx,.csv">
 <p class="note" id="fileinfo"></p>
 </section>
@@ -74,7 +76,8 @@ details summary{cursor:pointer;font-weight:600}
 <div class="sum" id="sum"></div>
 <div class="wrap"><table><thead><tr><th>#</th><th>姓名</th><th>出生(民國)</th><th>身分證</th><th>需確認</th></tr></thead><tbody id="tb"></tbody></table></div>
 <div style="margin-top:14px"><button id="dl">下載國泰格式 (.xlsx)</button>
-<button class="alt" id="cp">複製表格內容</button></div>
+<button class="alt" id="cp">複製表格內容</button>
+<a id="dlink" class="dlink" hidden></a></div>
 <p class="note" id="msg"></p>
 </section>
 </main>
@@ -168,15 +171,33 @@ function table(){
   const d=def();
   return [HEAD].concat(res.map((o,i)=>[i+1,o.name,o.birth,+d.type||'',o.id,'',o.id[1]==='1'?'M':o.id[1]==='2'?'F':'',(o.minor?+d.ksum:+d.sum)||'',o.minor?+d.ksum||'':'','','',(o.minor?+d.kreal:+d.real)||'','',d.inc,'',+d.ben||'','','','','']));
 }
+const MIME='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+let lastUrl=null;
 $('dl').onclick=async()=>{
-  const m=$('msg');m.textContent='';
-  if(!dl){m.textContent='這個環境無法直接下載，請改用「複製表格內容」，再貼到國泰模板。';return}
+  const m=$('msg'),lk=$('dlink');lk.hidden=true;m.textContent='';
+  if(typeof XLSX==='undefined'){m.textContent='Excel 程式庫沒有載入成功（可能沒有網路或被擋住），請重新整理頁面後再試。';return}
   try{
     const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(table()),'名冊');
     const t=new Date(),stamp=t.getFullYear()+p2(t.getMonth()+1)+p2(t.getDate());
-    await dl.save({filename:`國泰名冊_${stamp}.xlsx`,data:XLSX.write(wb,{type:'array',bookType:'xlsx'})});
-    m.textContent='已送出下載。上傳前請先看紅色列是否已處理。';
-  }catch(e){m.textContent=e&&e.code==='declined'?'已取消下載。':'下載失敗，請改用「複製表格內容」。'}
+    const name=`國泰名冊_${stamp}.xlsx`,buf=XLSX.write(wb,{type:'array',bookType:'xlsx'});
+    if(dl){await dl.save({filename:name,data:buf});m.textContent='已送出下載。上傳前請先看紅色列是否已處理。';return}
+    const blob=new Blob([buf],{type:MIME});
+    if(lastUrl)URL.revokeObjectURL(lastUrl);
+    lastUrl=URL.createObjectURL(blob);
+    lk.href=lastUrl;lk.download=name;lk.textContent='若沒有開始下載，請點這裡：'+name;lk.hidden=false;
+    // 手機：優先用系統分享選單（可選「儲存到檔案」），最可靠
+    if(matchMedia('(pointer:coarse)').matches&&navigator.canShare&&navigator.share){
+      try{
+        const file=new File([blob],name,{type:MIME});
+        if(navigator.canShare({files:[file]})){
+          await navigator.share({files:[file],title:name});
+          m.textContent='已開啟分享選單，請選「儲存到檔案」或直接傳到想要的位置。';return;
+        }
+      }catch(e){if(e&&e.name==='AbortError'){m.textContent='已取消。需要時可點下方連結再下載。';return}}
+    }
+    lk.click();
+    m.textContent='已產生檔案。如果沒有看到下載，請點下方虛線框的連結（手機可長按連結選「下載連結」）。';
+  }catch(e){m.textContent='下載失敗：'+(e&&e.message?e.message:e)+'。請改用「複製表格內容」。'}
 };
 $('cp').onclick=async()=>{
   const tsv=table().map(r=>r.join('\t')).join('\n');

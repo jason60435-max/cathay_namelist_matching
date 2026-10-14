@@ -14,7 +14,7 @@ box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:en
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 "Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif}
-main{max-width:760px;margin:0 auto;padding:20px 16px 48px}
+main{max-width:760px;margin:0 auto;padding:20px max(16px,env(safe-area-inset-right,0px)) 48px max(16px,env(safe-area-inset-left,0px))}
 h1{font-size:1.4rem;margin:0 0 4px}
 .sub{color:var(--mute);font-size:.88rem;margin:0 0 18px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
@@ -30,10 +30,24 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .sum.bad{background:var(--bad);color:var(--badink)}
 .wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
 table{border-collapse:collapse;width:100%;font-size:.85rem;white-space:nowrap}
-th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left}
+th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
 th{background:var(--bg);color:var(--mute);font-weight:600}
 tr.bad td{background:var(--bad);color:var(--badink)}
 .note{font-size:.82rem;color:var(--mute);margin-top:10px}
+.note.warn{color:var(--badink)}
+td.msg{white-space:normal;min-width:12em}
+tr.edited td:first-child{box-shadow:inset 3px 0 0 var(--acc)}
+.ops{display:flex;gap:6px}
+button.mini{width:auto;padding:5px 10px;font-size:.8rem;border-radius:8px;background:transparent;color:var(--ink);border:1px solid var(--line)}
+button.mini.del{color:var(--badink)}
+.ovbar{margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:.88rem}
+.ovrow{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.ovrow span{min-width:0}
+button.chip{width:auto;margin:8px 8px 0 0;padding:6px 12px;font-size:.85rem;background:transparent;color:var(--ink);border:1px solid var(--line)}
+.modal{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;background:rgba(10,14,12,.55);padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.modal .card{width:100%;max-width:420px;max-height:100%;overflow:auto;margin:0}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+.btns .alt{margin-top:0}
 details summary{cursor:pointer;font-weight:600}
 .dlink{display:block;margin-top:12px;padding:12px;border:1px dashed var(--acc);border-radius:10px;color:var(--acc);font-weight:600;text-align:center;word-break:break-all}
 [hidden]{display:none!important}
@@ -74,13 +88,28 @@ details summary{cursor:pointer;font-weight:600}
 <section class="card" id="resCard" hidden>
 <h2>3. 檢查結果</h2>
 <div class="sum" id="sum"></div>
-<div class="wrap"><table><thead><tr><th>#</th><th>姓名</th><th>出生(民國)</th><th>身分證</th><th>需確認</th></tr></thead><tbody id="tb"></tbody></table></div>
+<div class="wrap"><table><thead><tr><th>操作</th><th>#</th><th>姓名</th><th>出生(民國)</th><th>身分證</th><th>需確認</th></tr></thead><tbody id="tb"></tbody></table></div>
+<div class="ovbar" id="ovBar" hidden>
+<div class="ovrow"><span id="ovTxt"></span><button type="button" class="mini" id="ovReset">全部還原</button></div>
+<div id="chips"></div>
+</div>
 <div style="margin-top:14px"><button id="dl">下載國泰格式 (.xlsx)</button>
 <button class="alt" id="cp">複製表格內容</button>
 <a id="dlink" class="dlink" hidden></a></div>
 <p class="note" id="msg"></p>
 </section>
-<p class="note" id="ver" style="text-align:center">版本 2026-10-11</p>
+<p class="note" id="ver" style="text-align:center">版本 2026-10-14（測試版）</p>
+<div class="modal" id="ed" hidden role="dialog" aria-modal="true" aria-labelledby="edTitle">
+<form class="card" id="edForm" autocomplete="off">
+<h2 id="edTitle"></h2>
+<label for="edName">姓名</label><input type="text" id="edName">
+<label for="edBirth">出生日期</label><input type="text" id="edBirth" placeholder="例：950924、95/09/24、2006-09-24">
+<label for="edId">身分證字號</label><input type="text" id="edId" autocapitalize="characters" spellcheck="false">
+<p class="note" id="edPrev"></p>
+<div class="btns"><button type="submit">儲存</button><button type="button" class="alt" id="edCancel">取消</button></div>
+<button type="button" class="alt" id="edRevert" hidden>還原成原始檔內容</button>
+</form>
+</div>
 </main>
 
 <script id="core">
@@ -106,36 +135,46 @@ function bday(v,now){
   if(dt>now)return{e:'生日在未來'};
   return{v:String(y).padStart(3,'0')+p2(m)+p2(d),dt};
 }
-function convert(rows,ix,def,now){
-  const seen={};
-  const res=rows.map(r=>{
-    const cl=x=>String(x??'').replace(/[\s\u3000]/g,'');
-    const name=ix.n<0?'':cl(r[ix.n]);
-    const id=ix.i<0?'':cl(r[ix.i]).toUpperCase();
-    const b=ix.b<0?{e:'未選生日欄'}:bday(r[ix.b],now);
-    const bad=[];
-    if(!name)bad.push('缺姓名');
-    if(!id)bad.push('缺身分證');else{
-      if(!/^[A-Z][12]\d{8}$/.test(id))bad.push('身分證格式不符');else if(!idOk(id))bad.push('身分證檢查碼錯誤');
-      seen[id]=(seen[id]||0)+1;
-    }
-    let minor=false;
-    if(b.e)bad.push(b.e);
-    else{let a=now.getFullYear()-b.dt.getFullYear();const bd=new Date(now.getFullYear(),b.dt.getMonth(),b.dt.getDate());if(now<bd)a--;
-      minor=a<15}
-    return{name,id,birth:b.v||'',bad,minor};
+const clean=x=>String(x??'').replace(/[\s\u3000]/g,'');
+function evalRow(name,id,bv,hasB,now){
+  const b=hasB?bday(bv,now):{e:'未選生日欄'};
+  const bad=[];
+  if(!name)bad.push('缺姓名');
+  if(!id)bad.push('缺身分證');
+  else if(!/^[A-Z][12]\d{8}$/.test(id))bad.push('身分證格式不符');
+  else if(!idOk(id))bad.push('身分證檢查碼錯誤');
+  let minor=false;
+  if(b.e)bad.push(b.e);
+  else{let a=now.getFullYear()-b.dt.getFullYear();const bd=new Date(now.getFullYear(),b.dt.getMonth(),b.dt.getDate());if(now<bd)a--;minor=a<15}
+  return{name,id,birth:b.v||'',bad,minor};
+}
+// ov：以「原檔資料列序號」為鍵的手動調整，{del:true} 或 {name,id,birth}
+function convert(rows,ix,def,now,ov){
+  ov=ov||{};
+  const out=[],seen={};
+  rows.forEach((r,i)=>{
+    const e=ov[i];
+    if(e&&e.del)return;
+    const name=e&&e.name!=null?clean(e.name):(ix.n<0?'':clean(r[ix.n]));
+    const id=e&&e.id!=null?clean(e.id).toUpperCase():(ix.i<0?'':clean(r[ix.i]).toUpperCase());
+    const ownB=!!(e&&e.birth!=null);
+    const o=evalRow(name,id,ownB?e.birth:(ix.b<0?undefined:r[ix.b]),ownB||ix.b>=0,now);
+    o.src=i;o.edited=!!(e&&(e.name!=null||e.id!=null||e.birth!=null));
+    if(id)seen[id]=(seen[id]||0)+1;
+    out.push(o);
   });
-  res.forEach(o=>{if(o.id&&seen[o.id]>1)o.bad.push('身分證重複')});
-  return res;
+  out.forEach(o=>{if(o.id&&seen[o.id]>1)o.bad.push('身分證重複')});
+  return out;
 }
 </script>
 <script>
 const $=id=>document.getElementById(id);
-let rows=[],res=[],dl=null;
+let rows=[],res=[],dl=null,ov={};
 (async()=>{try{if(window.claude&&claude.use)dl=await claude.use('downloads')}catch(e){}})();
 const HEAD=["編號","姓名","出生日期(民國7碼)","ID類型","ID號碼","國籍＆居住地","性別","意外身故失能(萬)","喪葬費用(萬)","特定事故(萬)","恐怖主義(萬)","實支實付(萬)","突發疾病(萬)","旅遊不便","不便方案","受益人","受益人姓名","與被保人關係","英文姓名","護照號碼"];
 let aoa=[];
 function build(hi){
+  const had=Object.keys(ov).length;ov={};if(had)$('msg').textContent='標題列已變更，先前手動刪除與修改的內容已清除。';
   const hdr=(aoa[hi]||[]).map(x=>String(x).trim());
   rows=aoa.slice(hi+1).filter(r=>r.some(c=>String(c).trim()!==''));
   $('fileinfo').textContent=`已讀取：${rows.length} 筆資料（第一個工作表）`;
@@ -159,15 +198,34 @@ $('file').onchange=async e=>{
   }catch(err){$('fileinfo').textContent='讀取失敗，請確認是 Excel 檔（.xls/.xlsx）。';$('mapCard').hidden=true;$('resCard').hidden=true}
 };
 function def(){return{type:$('dType').value,sum:$('dSum').value,real:$('dReal').value,inc:$('dInc').value.trim().toUpperCase(),ben:$('dBen').value,ksum:$('kSum').value,kreal:$('kReal').value}}
+function ixs(){return{n:+$('cName').value,i:+$('cId').value,b:+$('cBirth').value}}
+function rawName(i){const x=ixs();return x.n<0?'':clean(rows[i][x.n])}
 function run(){
-  res=convert(rows,{n:+$('cName').value,i:+$('cId').value,b:+$('cBirth').value},def(),new Date());
+  res=convert(rows,ixs(),def(),new Date(),ov);
   const nb=res.filter(o=>o.bad.length).length;
-  const s=$('sum');s.className='sum'+(nb?' bad':'');
-  s.textContent=nb?`共 ${res.length} 人，其中 ${nb} 人需確認（紅色列）。請對照老師原檔修正後再上傳。`:`共 ${res.length} 人，全部通過檢查。`;
-  $('tb').innerHTML=res.map((o,i)=>`<tr class="${o.bad.length?'bad':''}"><td>${i+1}</td><td>${esc(o.name)}</td><td>${o.birth}</td><td>${esc(o.id)}</td><td>${esc(o.bad.length?o.bad.join('；'):o.minor?'未滿15歲：已套用兒童保額':'')}</td></tr>`).join('');
+  const ne=res.filter(o=>o.edited).length;
+  const dels=Object.keys(ov).filter(i=>ov[i].del).map(Number).sort((a,b)=>a-b);
+  const s=$('sum');s.className='sum'+(nb||!res.length?' bad':'');
+  s.textContent=!res.length?'目前沒有任何人員。請復原已刪除的人員，或重新選擇檔案。'
+    :nb?`共 ${res.length} 人，其中 ${nb} 人需確認（紅色列）。可按「編輯」直接修正，或「刪除」該列。`
+    :`共 ${res.length} 人，全部通過檢查。`;
+  $('tb').innerHTML=res.map((o,k)=>{
+    const parts=[];
+    if(o.bad.length)parts.push(o.bad.join('；'));else if(o.minor)parts.push('未滿15歲：已套用兒童保額');
+    if(o.edited)parts.push('已修改');
+    const nm=esc(o.name||'（空白）');
+    return `<tr class="${o.bad.length?'bad':''}${o.edited?' edited':''}"><td><div class="ops"><button type="button" class="mini" data-act="edit" data-i="${o.src}" aria-label="編輯 ${nm}">編輯</button><button type="button" class="mini del" data-act="del" data-i="${o.src}" aria-label="刪除 ${nm}">刪除</button></div></td><td>${k+1}</td><td>${esc(o.name)}</td><td>${o.birth}</td><td>${esc(o.id)}</td><td class="msg">${esc(parts.join('｜'))}</td></tr>`;
+  }).join('');
+  $('ovBar').hidden=!(dels.length||ne);
+  $('ovTxt').textContent=`手動調整：已刪除 ${dels.length} 人、修改 ${ne} 人。下載與複製會使用調整後的內容。`;
+  $('chips').innerHTML=dels.map(i=>{
+    const n=(ov[i].name!=null?clean(ov[i].name):rawName(i))||('第'+(i+1)+'筆');
+    return `<button type="button" class="chip" data-act="undo" data-i="${i}">復原 ${esc(n)}</button>`;
+  }).join('');
+  $('dl').disabled=$('cp').disabled=!res.length;
   $('resCard').hidden=false;
 }
-function esc(t){return String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function esc(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function table(){
   const d=def();
   return [HEAD].concat(res.map((o,i)=>[i+1,o.name,o.birth,+d.type||'',o.id,'',o.id[1]==='1'?'M':o.id[1]==='2'?'F':'',(o.minor?+d.ksum:+d.sum)||'',o.minor?+d.ksum||'':'','','',(o.minor?+d.kreal:+d.real)||'','',d.inc,'',+d.ben||'','','','','']));
@@ -205,6 +263,47 @@ $('cp').onclick=async()=>{
   try{await navigator.clipboard.writeText(tsv);$('msg').textContent='已複製，可貼到 Excel 或國泰模板。'}
   catch(e){$('msg').textContent='無法自動複製，請手動長按表格選取。'}
 };
+
+// ---- 刪除 / 復原 / 編輯 ----
+$('resCard').addEventListener('click',ev=>{
+  const b=ev.target.closest('button[data-act]');if(!b)return;
+  const i=+b.dataset.i,act=b.dataset.act;
+  if(act==='del'){ov[i]=Object.assign(ov[i]||{},{del:true});run()}
+  else if(act==='undo'){if(ov[i]){delete ov[i].del;if(!Object.keys(ov[i]).length)delete ov[i]}run()}
+  else if(act==='edit')openEdit(i,b);
+});
+$('ovReset').onclick=()=>{ov={};run()};
+let editing=null,opener=null,prefill={};
+function edPrev(){
+  const r=evalRow(clean($('edName').value),clean($('edId').value).toUpperCase(),$('edBirth').value,true,new Date());
+  const p=$('edPrev');p.className='note'+(r.bad.length?' warn':'');
+  p.textContent=r.bad.length?'目前輸入：'+r.bad.join('；'):'檢查通過。出生日期會輸出為 '+r.birth+(r.minor?'，未滿15歲，將套用兒童保額。':'。');
+}
+function openEdit(i,btn){
+  const o=res.find(r=>r.src===i);if(!o)return;
+  const x=ixs(),raw=x.b>=0?rows[i][x.b]:'';
+  editing=i;opener=btn;
+  prefill={name:o.name,birth:o.birth||(raw instanceof Date?'':String(raw??'')),id:o.id};
+  $('edTitle').textContent='修改第 '+(res.indexOf(o)+1)+' 位';
+  $('edName').value=prefill.name;$('edBirth').value=prefill.birth;$('edId').value=prefill.id;
+  $('edRevert').hidden=!ov[i];
+  edPrev();$('ed').hidden=false;$('edName').focus();
+}
+function closeEdit(){$('ed').hidden=true;editing=null;opener=null}
+['edName','edBirth','edId'].forEach(k=>$(k).oninput=edPrev);
+$('edForm').addEventListener('submit',ev=>{
+  ev.preventDefault();if(editing==null)return;
+  const ch={},n=$('edName').value,b=$('edBirth').value.trim(),d=$('edId').value;
+  if(clean(n)!==prefill.name)ch.name=n;
+  if(b!==prefill.birth)ch.birth=b;
+  if(clean(d).toUpperCase()!==prefill.id)ch.id=d;
+  if(Object.keys(ch).length)ov[editing]=Object.assign(ov[editing]||{},ch);
+  closeEdit();run();
+});
+$('edCancel').onclick=closeEdit;
+$('edRevert').onclick=()=>{if(editing!=null)delete ov[editing];closeEdit();run()};
+$('ed').addEventListener('click',ev=>{if(ev.target===$('ed'))closeEdit()});
+document.addEventListener('keydown',ev=>{if(ev.key==='Escape'&&!$('ed').hidden)closeEdit()});
 </script>
 </body>
 </html>

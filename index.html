@@ -61,6 +61,7 @@ details summary{cursor:pointer;font-weight:600}
 <section class="card">
 <h2>1. 選擇老師的名冊（Excel）</h2>
 <input type="file" id="file" accept=".xls,.xlsx,.csv">
+<div id="shWrap" hidden><label for="sheetSel">工作表（檔案裡有多個工作表時，選名冊所在的那一個）</label><select id="sheetSel"></select></div>
 <p class="note" id="fileinfo"></p>
 </section>
 
@@ -70,7 +71,12 @@ details summary{cursor:pointer;font-weight:600}
 <p class="note" id="hPrev"></p>
 <label for="cName">姓名在哪一欄</label><select id="cName"></select>
 <label for="cId">身分證字號在哪一欄</label><select id="cId"></select>
-<label for="cBirth">出生日期在哪一欄</label><select id="cBirth"></select>
+<label for="cBirth">出生日期在哪一欄（若年、月、日分成三欄，這裡選「年」那欄）</label><select id="cBirth"></select>
+<div class="grid">
+<div><label for="cBm">出生「月」在哪一欄（沒分欄就不選）</label><select id="cBm"></select></div>
+<div><label for="cBd">出生「日」在哪一欄（沒分欄就不選）</label><select id="cBd"></select></div>
+</div>
+<p class="note" id="bNote"></p>
 <details style="margin-top:14px"><summary>固定欄位（全員相同）</summary>
 <div class="grid">
 <div><label for="dType">ID類型</label><input type="number" id="dType" value="1"></div>
@@ -98,7 +104,7 @@ details summary{cursor:pointer;font-weight:600}
 <a id="dlink" class="dlink" hidden></a></div>
 <p class="note" id="msg"></p>
 </section>
-<p class="note" id="ver" style="text-align:center">版本 2026-10-14</p>
+<p class="note" id="ver" style="text-align:center">版本 2026-10-15</p>
 <div class="modal" id="ed" hidden role="dialog" aria-modal="true" aria-labelledby="edTitle">
 <form class="card" id="edForm" autocomplete="off">
 <h2 id="edTitle"></h2>
@@ -116,10 +122,18 @@ details summary{cursor:pointer;font-weight:600}
 const L={A:10,B:11,C:12,D:13,E:14,F:15,G:16,H:17,I:34,J:18,K:19,L:20,M:21,N:22,O:35,P:23,Q:24,R:25,S:26,T:27,U:28,V:29,W:32,X:30,Y:31,Z:33};
 function idOk(s){if(!/^[A-Z][12]\d{8}$/.test(s))return false;const c=L[s[0]];let t=Math.floor(c/10)+(c%10)*9;const w=[8,7,6,5,4,3,2,1,1];for(let i=0;i<9;i++)t+=(+s[i+1])*w[i];return t%10===0}
 const p2=n=>String(n).padStart(2,'0');
+const pn=x=>{if(x==null)return null;if(typeof x==='number')return Number.isFinite(x)?Math.trunc(x):null;const t=String(x).replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-65248)).match(/\d+/);return t?+t[0]:null};
 function bday(v,now){
   if(v===''||v==null)return{e:'缺出生日期'};
   let y,m,d;
-  if(v instanceof Date){y=v.getFullYear()-1911;m=v.getMonth()+1;d=v.getDate()}
+  if(v&&v.ymd){
+    const q=v.ymd.map(pn);
+    if(q.every(x=>x==null))return{e:'缺出生日期'};
+    if(q.some(x=>x==null))return{e:'出生年／月／日不完整'};
+    if(q[0]>=1000)y=q[0]-1911;else if(q[0]>=1&&q[0]<=200)y=q[0];else return{e:'出生年份看不懂：'+v.ymd[0]};
+    m=q[1];d=q[2];
+  }
+  else if(v instanceof Date){y=v.getFullYear()-1911;m=v.getMonth()+1;d=v.getDate()}
   else if(typeof v==='number'&&v<100000&&v>0){const o=XLSX.SSF.parse_date_code(v);y=o.y-1911;m=o.m;d=o.d}
   else{
     const s=String(v).trim().replace(/[年月\/\-．。]/g,'.').replace(/日/g,'').replace(/\s/g,'');
@@ -158,7 +172,8 @@ function convert(rows,ix,def,now,ov){
     const name=e&&e.name!=null?clean(e.name):(ix.n<0?'':clean(r[ix.n]));
     const id=e&&e.id!=null?clean(e.id).toUpperCase():(ix.i<0?'':clean(r[ix.i]).toUpperCase());
     const ownB=!!(e&&e.birth!=null);
-    const o=evalRow(name,id,ownB?e.birth:(ix.b<0?undefined:r[ix.b]),ownB||ix.b>=0,now);
+    const ymd=ix.b>=0&&ix.m>=0&&ix.d>=0;
+    const o=evalRow(name,id,ownB?e.birth:(ix.b<0?undefined:(ymd?{ymd:[r[ix.b],r[ix.m],r[ix.d]]}:r[ix.b])),ownB||ix.b>=0,now);
     o.src=i;o.edited=!!(e&&(e.name!=null||e.id!=null||e.birth!=null));
     if(id)seen[id]=(seen[id]||0)+1;
     out.push(o);
@@ -174,33 +189,49 @@ let rows=[],res=[],dl=null,ov={};
 const HEAD=["編號","姓名","出生日期(民國7碼)","ID類型","ID號碼","國籍＆居住地","性別","意外身故失能(萬)","喪葬費用(萬)","特定事故(萬)","恐怖主義(萬)","實支實付(萬)","突發疾病(萬)","旅遊不便","不便方案","受益人","受益人姓名","與被保人關係","英文姓名","護照號碼"];
 let aoa=[];
 function build(hi){
-  const had=Object.keys(ov).length;ov={};if(had)$('msg').textContent='標題列已變更，先前手動刪除與修改的內容已清除。';
+  const had=Object.keys(ov).length;ov={};if(had)$('msg').textContent='標題列或工作表已變更，先前手動刪除與修改的內容已清除。';
   const hdr=(aoa[hi]||[]).map(x=>String(x).trim());
   rows=aoa.slice(hi+1).filter(r=>r.some(c=>String(c).trim()!==''));
-  $('fileinfo').textContent=`已讀取：${rows.length} 筆資料（第一個工作表）`;
+  const sn=$('sheetSel').value;$('fileinfo').textContent=`已讀取：${rows.length} 筆資料（工作表：${sn}）`;
   $('hPrev').textContent='目前標題列內容：'+(hdr.filter(Boolean).join('、')||'（這一列是空的）');
   const opts=hdr.map((h,i)=>`<option value="${i}">${(h||'（無標題）').replace(/</g,'&lt;')}（第${i+1}欄）</option>`).join('');
-  const g={cName:guess(hdr,/姓名|名字|被保|^名/),cId:guess(hdr,/身分證|身份證|證號|字號|ID/i),cBirth:guess(hdr,/生日|出生|生年/)};
+  const g={cName:guess(hdr,/姓名|名字|被保|^名/),cId:guess(hdr,/身分證|身份證|證號|字號|ID/i),cBirth:guess(hdr,/生日|出生|生年/),cBm:-1,cBd:-1};
+  const gy=hdr.findIndex(x=>/年/.test(x)&&!/齡|歲/.test(x)&&/生|出|^年$|民國|西元/.test(x)||/^(民國|西元)?年$/.test(x));
+  const gm=hdr.findIndex(x=>/月/.test(x)),gd=hdr.findIndex((x,i)=>/日/.test(x)&&!/日期/.test(x)&&i!==gy&&i!==gm);
+  if(gy>=0&&gm>=0&&gd>=0){g.cBirth=gy;g.cBm=gm;g.cBd=gd}
   for(const k in g){$(k).innerHTML='<option value="-1">（不選）</option>'+opts;$(k).value=g[k];$(k).onchange=run}
   $('mapCard').hidden=false;run();
 }
 function guess(h,re){const i=h.findIndex(x=>re.test(x));return i}
+let wbk=null;
+function loadSheet(name){
+  aoa=XLSX.utils.sheet_to_json(wbk.Sheets[name],{header:1,raw:true,defval:''});
+  let hi=0;const re=[/姓名|名字|被保/,/身分證|身份證|證號|字號|ID/i,/生日|出生|生年/];
+  for(let r=0;r<Math.min(aoa.length,30);r++){const t=aoa[r].map(x=>String(x));if(re.filter(q=>t.some(c=>q.test(c))).length>=2){hi=r;break}}
+  $('hRow').value=hi+1;$('hRow').oninput=()=>build(Math.max(0,(+$('hRow').value||1)-1));
+  ['dType','dSum','dReal','dInc','dBen','kSum','kReal'].forEach(k=>$(k).oninput=run);
+  build(hi);
+}
+$('sheetSel').onchange=()=>{if(wbk)loadSheet($('sheetSel').value)};
 $('file').onchange=async e=>{
   const f=e.target.files[0];if(!f)return;
   try{
-    const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});
-    aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:true,defval:''});
-    let hi=0;const re=[/姓名|名字|被保/,/身分證|身份證|證號|字號|ID/i,/生日|出生|生年/];
-    for(let r=0;r<Math.min(aoa.length,30);r++){const t=aoa[r].map(x=>String(x));if(re.filter(q=>t.some(c=>q.test(c))).length>=2){hi=r;break}}
-    $('hRow').value=hi+1;$('hRow').oninput=()=>build(Math.max(0,(+$('hRow').value||1)-1));
-    ['dType','dSum','dReal','dInc','dBen','kSum','kReal'].forEach(k=>$(k).oninput=run);
-    build(hi);
-  }catch(err){$('fileinfo').textContent='讀取失敗，請確認是 Excel 檔（.xls/.xlsx）。';$('mapCard').hidden=true;$('resCard').hidden=true}
+    wbk=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});
+    $('sheetSel').innerHTML=wbk.SheetNames.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    $('shWrap').hidden=false;
+    ov={};loadSheet(wbk.SheetNames[0]);
+  }catch(err){wbk=null;$('shWrap').hidden=true;$('fileinfo').textContent='讀取失敗，請確認是 Excel 檔（.xls/.xlsx）。';$('mapCard').hidden=true;$('resCard').hidden=true}
 };
 function def(){return{type:$('dType').value,sum:$('dSum').value,real:$('dReal').value,inc:$('dInc').value.trim().toUpperCase(),ben:$('dBen').value,ksum:$('kSum').value,kreal:$('kReal').value}}
-function ixs(){return{n:+$('cName').value,i:+$('cId').value,b:+$('cBirth').value}}
+function ixs(){return{n:+$('cName').value,i:+$('cId').value,b:+$('cBirth').value,m:+$('cBm').value,d:+$('cBd').value}}
+function rawBirth(i){const x=ixs();if(x.b<0)return'';const r=rows[i];return(x.m>=0&&x.d>=0)?[r[x.b],r[x.m],r[x.d]].map(v=>String(v??'').trim()||'?').join('/'):(r[x.b] instanceof Date?'':String(r[x.b]??''))}
 function rawName(i){const x=ixs();return x.n<0?'':clean(rows[i][x.n])}
 function run(){
+  const xx=ixs(),bn=$('bNote');
+  bn.className='note';
+  if(xx.b>=0&&xx.m>=0&&xx.d>=0)bn.textContent='已改用「年＋月＋日」三欄組合。年份可是西元（如 1996）或民國（如 85）；3 位數以下視為民國，4 位數視為西元。';
+  else if(xx.m>=0||xx.d>=0){bn.className='note warn';bn.textContent='月與日兩欄都要選，才會使用三欄組合；目前仍以單一生日欄判斷。'}
+  else bn.textContent='';
   res=convert(rows,ixs(),def(),new Date(),ov);
   const nb=res.filter(o=>o.bad.length).length;
   const ne=res.filter(o=>o.edited).length;
@@ -281,9 +312,9 @@ function edPrev(){
 }
 function openEdit(i,btn){
   const o=res.find(r=>r.src===i);if(!o)return;
-  const x=ixs(),raw=x.b>=0?rows[i][x.b]:'';
+  
   editing=i;opener=btn;
-  prefill={name:o.name,birth:o.birth||(raw instanceof Date?'':String(raw??'')),id:o.id};
+  prefill={name:o.name,birth:o.birth||rawBirth(i),id:o.id};
   $('edTitle').textContent='修改第 '+(res.indexOf(o)+1)+' 位';
   $('edName').value=prefill.name;$('edBirth').value=prefill.birth;$('edId').value=prefill.id;
   $('edRevert').hidden=!ov[i];
